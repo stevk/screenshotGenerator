@@ -98,7 +98,6 @@ function validateCommandLineArguments(commandLineArgs: ICommandLineArguments[]):
 function createWindow() {
   let width = 800;
   let height = 800;
-  let gltf = "";
   let headless = false;
   let manifest = "";
   let outputDirectory = "";
@@ -160,10 +159,6 @@ function createWindow() {
     ipcMain.on('synchronous-message', (event: any, arg: string) => {
       if (arg === 'headless') {
         event.returnValue = headless;
-      }
-      else if (arg === 'gltf') {
-        console.log('gltf called: ' + gltf);
-        event.returnValue = gltf;
       }
       else if (arg === 'manifest') {
         event.returnValue = manifest;

@@ -1,18 +1,15 @@
 import * as BABYLON from 'babylonjs';
 import 'babylonjs-loaders';
-
-const { remote } = require('electron');
-const { dialog } = remote;
-const w = remote.getCurrentWindow();
+import { VideoRecorder } from "babylonjs";
+import * as child_process from 'child_process';
 
 const fs = require('fs');
-const readline = require('readline');
-const stream = require('stream');
-
-const con = remote.getGlobal('console');
-const { app } = remote;
-
+const ffmpegPath = require('ffmpeg-binaries');
 const { ipcRenderer } = require('electron');
+const { remote } = require('electron');
+const con = remote.getGlobal('console');
+const { dialog } = remote;
+const w = remote.getCurrentWindow();
 
 interface ICamera {
     translation: BABYLON.Vector3
@@ -41,19 +38,16 @@ export default class Renderer {
             self._canvas = canvas;
             self._engine = engine;
 
-            // This creates a basic Babylon Scene object (non-mesh)
+            // This creates a basic Babylon Scene object (non-mesh).
             const scene = new BABYLON.Scene(engine);
             scene.createDefaultCameraOrLight(true, true, true);
             const arcRotateCamera = scene.activeCamera as BABYLON.ArcRotateCamera;
             arcRotateCamera.setPosition(camPos);
             self._camera = arcRotateCamera;
-            var hdrTexture = BABYLON.CubeTexture.CreateFromPrefilteredData("assets/environment.dds", scene);
+            const hdrTexture = BABYLON.CubeTexture.CreateFromPrefilteredData("assets/environment.dds", scene);
             hdrTexture.gammaSpace = false;
             scene.createDefaultSkybox(hdrTexture, true, 100, 0.0);
             self._scene = scene;
-
-            // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
-            const light = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
 
             if (filepath) {
                 const fileURL = filepath.replace(/\\/g, '/');
@@ -63,7 +57,7 @@ export default class Renderer {
 
                 if (fs.existsSync(filepath)) {
                     BABYLON.SceneLoader.ImportMesh("", rootDirectory, sceneFileName, self._scene, function (meshes) {
-                        let root: BABYLON.AbstractMesh = new BABYLON.Mesh("root", self._scene);
+                        const root: BABYLON.AbstractMesh = new BABYLON.Mesh("root", self._scene);
 
                         for (const mesh of meshes) {
                             if (!mesh.parent) {
@@ -88,51 +82,71 @@ export default class Renderer {
         });
     }
 
-    createSnapshotAsync(canvas: HTMLCanvasElement, engine: BABYLON.Engine, filename: string, outputFolder: string, ms: number = 5000): Promise<any> {
+    createSnapshotAsync(engine: BABYLON.Engine, sampleImageName: string, outputFolder: string,): Promise<any> {
         const self = this;
 
         return new Promise((resolve, reject) => {
-            const name = BABYLON.Tools.GetFilename(filename).replace('.glb', '.png').replace('.gltf', '.png') || "test.png";
+            const name = BABYLON.Tools.GetFilename(sampleImageName).replace('Figures/SampleImages/', '');
             con.log("making snapshot for: " + name);
+            const recorder = new VideoRecorder(engine);
 
             self._scene.executeWhenReady(() => {
-                self._scene.render();
+                if (sampleImageName.endsWith('.png')) {
+                    self._scene.render();
 
-                self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, function (base64Image: string) {
-                    if (base64Image) {
-                        base64Image = base64Image.replace(/^data:image\/png;base64,/, "");
-                        const filename = outputFolder + '/' + name;
-                        fs.writeFile(filename, base64Image, 'base64', function (err: string) {
-                            if (err) {
-                                reject("error happened: " + err);
-                            }
-                            else {
-                                resolve("snapshot generated");
-                            }
-                        });
-                    }
-                    else {
-                        reject("No image data available");
-                    }
-                });
+                    self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, function (base64Image: string) {
+                        if (base64Image) {
+                            base64Image = base64Image.replace(/^data:image\/png;base64,/, "");
+                            const sampleImageName = outputFolder + '/' + name;
+                            fs.writeFile(sampleImageName, base64Image, 'base64', function (err: string) {
+                                if (err) {
+                                    reject("error happened: " + err);
+                                }
+                                else {
+                                    resolve("snapshot generated");
+                                }
+                            });
+                        }
+                        else {
+                            reject("No image data available");
+                        }
+                    });
+
+                } else if (sampleImageName.endsWith('.gif')) {
+                    self._scene.getEngine().runRenderLoop(() => {
+                        self._scene.render();
+                    });
+
+                    // Capture and download a webm of the animated model.
+                    const gifFullName = outputFolder + '/' + name;
+                    const webmFilename = gifFullName.replace('.gif', '.webm');
+                    recorder.startRecording(null, 3).then((videoblob) => {
+                        const fileReader = new FileReader();
+                        fileReader.onload = function () {
+                            fs.writeFileSync(webmFilename, Buffer.from(new Uint8Array(this.result as ArrayBuffer)));
+
+                            // Convert the webm to animated gif.
+                            runProgram(`${ffmpegPath} -i ${webmFilename} ${gifFullName} -hide_banner`, __dirname);
+                            runProgram(`${ffmpegPath} -i ${webmFilename} -vf scale=72:72 ${gifFullName.replace('SampleImages', 'Thumbnails')} -hide_banner`, __dirname);
+                            resolve("Animated gif generated");
+                        };
+                        fileReader.readAsArrayBuffer(videoblob);
+                    });
+                }
             });
-
-            setTimeout(() => {
-                reject(`createSnapshotAsync: Promise timed out after ${ms} ms.`);
-            }, ms);
         });
     }
 
     async createSnapshotsAsync(glTFAssets: IGLTFAsset[], canvas: HTMLCanvasElement, engine: BABYLON.Engine, outputDirectory: string) {
-        let snapshotPromiseChain: Promise<any> = null;
-
-        for (let i = 0; i < glTFAssets.length; ++i) {
-            try {
-                const r = await this.createSceneAsync(canvas, engine, glTFAssets[i].filepath, glTFAssets[i].camera.translation);
-                const result = await this.createSnapshotAsync(canvas, engine, glTFAssets[i].filepath, outputDirectory);
-            }
-            catch (err) {
-                con.log("Failed to create snapshot: " + err);
+        for (const glTFAsset of glTFAssets) {
+            if (glTFAsset.sampleImageName) {
+                try {
+                    await this.createSceneAsync(canvas, engine, glTFAsset.filepath, glTFAsset.camera.translation);
+                    await this.createSnapshotAsync(engine, glTFAsset.sampleImageName, outputDirectory);
+                }
+                catch (err) {
+                    con.log("Failed to create snapshot: " + err);
+                }
             }
         }
         con.log("Complete!");
@@ -140,18 +154,12 @@ export default class Renderer {
     }
 
     initialize(canvas: HTMLCanvasElement) {
-        let runHeadless = false;
-        let gltf: string;
-        runHeadless = ipcRenderer.sendSync('synchronous-message', 'headless');
-        gltf = ipcRenderer.sendSync('synchronous-message', 'gltf');
-        let manifest = ipcRenderer.sendSync('synchronous-message', 'manifest');
-        let outputDirectory = ipcRenderer.sendSync('synchronous-message', 'outputDirectory');
+        const runHeadless = ipcRenderer.sendSync('synchronous-message', 'headless') || false;
+        const manifest = ipcRenderer.sendSync('synchronous-message', 'manifest');
+        const outputDirectory = ipcRenderer.sendSync('synchronous-message', 'outputDirectory');
         const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true });
-        let glTFAssets: IGLTFAsset[] = null;
 
-        if (manifest) {
-            glTFAssets = this.loadManifestFile(manifest);
-        }
+        const glTFAssets: IGLTFAsset[] = this.loadManifestFile(manifest);
 
         if (runHeadless) {
             if (!fs.existsSync(outputDirectory)) {
@@ -171,7 +179,6 @@ export default class Renderer {
             });
         }
     }
-
 
     convertToURL(filePath: string): string {
         return filePath.replace(/\\/g, '/');
@@ -203,7 +210,7 @@ export default class Renderer {
         const result: IGLTFAsset[] = [];
 
         const content = fs.readFileSync(manifestJSON);
-        // open the manifest file
+        // Open the manifest file.
         const jsonData = JSON.parse(content);
 
         if ('models' in jsonData) {
@@ -214,8 +221,7 @@ export default class Renderer {
             }
         }
         else {
-            for (let i = 0; i < jsonData.length; ++i) {
-                const jsonObj = jsonData[i];
+            for (const jsonObj of jsonData) {
                 const folder = jsonObj.folder;
 
                 for (const model of jsonObj.models) {
@@ -284,6 +290,28 @@ export default class Renderer {
     }
 }
 
+/**
+ * Launches an specified external program.
+ * @param cmd Program to run, including command line parameters.
+ * @param directory Filepath to execute the program from.
+ * @param exitFunc Code to be run on completion. (Exit message, next function, etc...)
+ */
+function runProgram(cmd: string, directory: string) {
+    return new Promise((resolve, reject) => {
+        const child = child_process.exec(cmd, {cwd: directory});
+        child.stdout.on('data', (data: string) => {
+            console.log(data.toString());
+        });
+        child.stderr.on('data', (data: string) => {
+            console.log(data.toString());
+            reject(data);
+        });
+        child.on('close', () => {
+            resolve('Program Closed');
+        });
+    });
+}
+
 const renderer = new Renderer();
-let canvas: HTMLCanvasElement = document.getElementById('render-canvas') as HTMLCanvasElement;
+const canvas: HTMLCanvasElement = document.getElementById('render-canvas') as HTMLCanvasElement;
 renderer.initialize(canvas);

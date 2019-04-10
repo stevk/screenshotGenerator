@@ -1,0 +1,47 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Main",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/app/main.js",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+            "windows": { "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd" },
+            "stopOnEntry": false,
+            "runtimeArgs": [
+                "--remote-debugging-port=5858"
+            ],
+            "args": [
+                "--",
+                "--",
+                "headless=true", 
+                "manifest=${workspaceFolder}/../Output/Positive/Manifest.json", 
+                "outputDirectory=${workspaceFolder}/../tempImages/Figures/SampleImages"
+            ],
+            "cwd": "${workspaceFolder}",
+            "outputCapture": "std",
+        },
+        {
+            "name": "Attach to Renderer",
+            "type": "chrome",
+            "request": "attach",
+            "port": 5858,
+            "address": "localhost",
+            "webRoot": "${workspaceFolder}/app",
+            "timeout": 10000,
+        },
+    ],
+    "compounds": [
+        {
+            "name": "Run and Attach debugger",
+            "configurations": [
+                "Launch Main",
+                "Attach to Renderer"
+            ]
+        }
+    ]
+}

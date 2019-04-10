@@ -11,13 +11,13 @@ def resizeImages(directory, outputDirectory, width, height):
 
     if not os.path.isdir(outputDirectory):
         os.makedirs(outputDirectory)
-    
+
     for file in os.listdir(directory):
-        abspath = os.path.join(directory, file)
-        
-        img = Image.open(abspath)
-        img = img.resize((width, height), Image.ANTIALIAS)
-        img.save(os.path.join(outputDirectory, file))
+        if file.endswith('.png'):
+            abspath = os.path.join(directory, file)
+            img = Image.open(abspath)
+            img = img.resize((width, height), Image.ANTIALIAS)
+            img.save(os.path.join(outputDirectory, file))
 
 
 def parseArgs():
