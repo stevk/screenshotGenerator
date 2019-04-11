@@ -113,24 +113,28 @@ export default class Renderer {
                     });
 
                 } else if (sampleImageName.endsWith('.gif')) {
+                    const gifFullName = outputFolder + '/' + name;
+                    const webmFilename = gifFullName.replace('.gif', '.webm');
+
                     self._scene.getEngine().runRenderLoop(() => {
                         self._scene.render();
                     });
 
                     // Capture and download a webm of the animated model.
-                    const gifFullName = outputFolder + '/' + name;
-                    const webmFilename = gifFullName.replace('.gif', '.webm');
-                    recorder.startRecording(null, 3).then((videoblob) => {
+                    recorder.startRecording(null, 3).then(function(videoblob) {
+                        self._scene.getEngine().stopRenderLoop();
                         const fileReader = new FileReader();
                         fileReader.onload = function () {
                             fs.writeFileSync(webmFilename, Buffer.from(new Uint8Array(this.result as ArrayBuffer)));
-
-                            // Convert the webm to animated gif.
-                            runProgram(`${ffmpegPath} -i ${webmFilename} ${gifFullName} -hide_banner`, __dirname);
-                            runProgram(`${ffmpegPath} -i ${webmFilename} -vf scale=72:72 ${gifFullName.replace('SampleImages', 'Thumbnails')} -hide_banner`, __dirname);
-                            resolve("Animated gif generated");
                         };
                         fileReader.readAsArrayBuffer(videoblob);
+                        // Convert the webm to animated gif and create a thumbnail.
+                        return runProgram(`${ffmpegPath} -y -i ${webmFilename} ${gifFullName} -vf scale=72:72 ${gifFullName.replace('SampleImages', 'Thumbnails')} -hide_banner -loglevel error`, __dirname);
+                    }).then(function(result) {
+                        resolve("Animated gif generated");
+                    }).catch(error => { 
+                        con.log(error);
+                        con.log(error.message);
                     });
                 }
             });
