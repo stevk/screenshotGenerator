@@ -115,6 +115,7 @@ export default class Renderer {
                 } else if (sampleImageName.endsWith('.gif')) {
                     const gifFullName = outputFolder + '/' + name;
                     const webmFilename = gifFullName.replace('.gif', '.webm');
+                    const palette = `palette.png`;
 
                     self._scene.getEngine().runRenderLoop(() => {
                         self._scene.render();
@@ -128,8 +129,15 @@ export default class Renderer {
                             fs.writeFileSync(webmFilename, Buffer.from(new Uint8Array(this.result as ArrayBuffer)));
                         };
                         fileReader.readAsArrayBuffer(videoblob);
+                        // Generate a custom color palette to improve the gif quality.
+                        const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${webmFilename} -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
+                        return runProgram(makePallet , __dirname);
+                    }).then(function(result) {
                         // Convert the webm to animated gif and create a thumbnail.
-                        return runProgram(`${ffmpegPath} -y -i ${webmFilename} ${gifFullName} -vf scale=72:72 ${gifFullName.replace('SampleImages', 'Thumbnails')} -hide_banner -loglevel error`, __dirname);
+                        const makeGif = (`${ffmpegPath} -hide_banner -loglevel error -y -i ${webmFilename} -i ${palette} \
+                        -filter_complex [0:v]split=2[in1][in2];[in1]scale=0:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2] \
+                        -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
+                        return runProgram(makeGif, __dirname);
                     }).then(function(result) {
                         resolve("Animated gif generated");
                     }).catch(error => { 
