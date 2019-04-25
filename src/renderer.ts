@@ -1,6 +1,5 @@
-import * as BABYLON from 'babylonjs';
+import 'babylonjs';
 import 'babylonjs-loaders';
-import { VideoRecorder } from "babylonjs";
 import * as child_process from 'child_process';
 
 const fs = require('fs');
@@ -49,27 +48,32 @@ export default class Renderer {
             scene.createDefaultSkybox(hdrTexture, true, 100, 0.0);
             self._scene = scene;
 
+            // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
+            new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
+
             if (filepath) {
                 const fileURL = filepath.replace(/\\/g, '/');
                 const rootDirectory = BABYLON.Tools.GetFolderPath(fileURL);
                 const sceneFileName = BABYLON.Tools.GetFilename(fileURL);
                 const self = this;
 
+                self._scene.useConstantAnimationDeltaTime = true;
+                BABYLON.SceneLoader.OnPluginActivatedObservable.addOnce((plugin) => {
+                    if (plugin instanceof BABYLON.GLTFFileLoader) {
+                        plugin.animationStartMode = BABYLON.GLTFLoaderAnimationStartMode.NONE;
+                    }
+                });
+
                 if (fs.existsSync(filepath)) {
-                    BABYLON.SceneLoader.ImportMesh("", rootDirectory, sceneFileName, self._scene, function (meshes) {
-                        const root: BABYLON.AbstractMesh = new BABYLON.Mesh("root", self._scene);
-
-                        for (const mesh of meshes) {
-                            if (!mesh.parent) {
-                                mesh.parent = root;
-                            }
+                    BABYLON.SceneLoader.ImportMeshAsync("", rootDirectory, sceneFileName, self._scene).then((result) => {
+                        if (result.animationGroups[0]) {
+                            result.animationGroups[0].start(false);
                         }
-                        root.position = new BABYLON.Vector3(0, 0, 0);
-                        root.rotation = new BABYLON.Vector3(0, 0, 0);
-
                         resolve("createSceneAsync: Loaded model: " + fileURL);
-                    }, null, function (scene, message, exception) {
-                        reject("createSceneAsync: Failed to load model: " + message);
+                    })
+                    .catch(error => {
+                        con.log(error.message.toString());
+                        reject("createSceneAsync: Failed to load model");
                     });
                 }
                 else {
@@ -82,28 +86,74 @@ export default class Renderer {
         });
     }
 
-    createSnapshotAsync(engine: BABYLON.Engine, sampleImageName: string, outputFolder: string,): Promise<any> {
+    createSnapshotAsync(sampleImageName: string, outputFolder: string,): Promise<any> {
         const self = this;
 
         return new Promise((resolve, reject) => {
             const name = BABYLON.Tools.GetFilename(sampleImageName).replace('Figures/SampleImages/', '');
             con.log("making snapshot for: " + name);
-            const recorder = new VideoRecorder(engine);
 
             self._scene.executeWhenReady(() => {
-                if (sampleImageName.endsWith('.png')) {
+                if (self._scene.animationGroups[0]) {
+                    // Create an animated gif if the model has an animation.
+
+                    const sampleImageFolderName = outputFolder + '/' + name.replace('.gif', '');
+                    fs.mkdirSync(sampleImageFolderName, { recursive: true } );
+
+                    self._scene.animationGroups[0].onAnimationGroupEndObservable.addOnce(() => {
+                        self._scene.getEngine().stopRenderLoop();
+
+                        const gifFullName = outputFolder + '/' + name;
+                        const palette = `palette.png`;
+                        
+                        const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
+
+                        const gifFromFrames = (`${ffmpegPath} -hide_banner -loglevel error -y -r 60 -i ${sampleImageFolderName}/%d.png -i ${palette} \
+                        -filter_complex [0:v]split=2[in1][in2];[in1]scale=400:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2] \
+                        -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
+
+                        runProgram(makePallet, __dirname)
+                        .then(() => {
+                            return runProgram(gifFromFrames, __dirname);
+                        })
+                        .then(() => {
+                            resolve("Animated gif generated");
+                        }).catch(error => { 
+                            con.log(error);
+                            con.log(error.message);
+                            reject("Error encountered while creating gif.");
+                        });
+                    });
+
+                    let loopCount = 0;
+                    self._scene.getEngine().runRenderLoop(() => {
+                        const imageName = sampleImageFolderName + '/' + loopCount + '.png';
+                        self._scene.render();
+                         self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, (base64Image: string) => {
+                            base64Image = base64Image.replace(/^data:image\/png;base64,/, "");
+                            
+                            fs.writeFileSync(imageName, base64Image, 'base64', (error: string) => {
+                                if (error) throw error;
+                            });
+                        });
+
+                        loopCount++;
+                    });
+                }
+                else {
+                    // No animation on the model, so take an image.
                     self._scene.render();
 
-                    self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, function (base64Image: string) {
+                    self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, (base64Image: string) => {
                         if (base64Image) {
                             base64Image = base64Image.replace(/^data:image\/png;base64,/, "");
                             const sampleImageName = outputFolder + '/' + name;
-                            fs.writeFile(sampleImageName, base64Image, 'base64', function (err: string) {
+                            fs.writeFile(sampleImageName, base64Image, 'base64', (err: string) => {
                                 if (err) {
                                     reject("error happened: " + err);
                                 }
                                 else {
-                                    resolve("snapshot generated");
+                                        resolve("snapshot generated");
                                 }
                             });
                         }
@@ -112,38 +162,6 @@ export default class Renderer {
                         }
                     });
 
-                } else if (sampleImageName.endsWith('.gif')) {
-                    const gifFullName = outputFolder + '/' + name;
-                    const webmFilename = gifFullName.replace('.gif', '.webm');
-                    const palette = `palette.png`;
-
-                    self._scene.getEngine().runRenderLoop(() => {
-                        self._scene.render();
-                    });
-
-                    // Capture and download a webm of the animated model.
-                    recorder.startRecording(null, 3).then(function(videoblob) {
-                        self._scene.getEngine().stopRenderLoop();
-                        const fileReader = new FileReader();
-                        fileReader.onload = function () {
-                            fs.writeFileSync(webmFilename, Buffer.from(new Uint8Array(this.result as ArrayBuffer)));
-                        };
-                        fileReader.readAsArrayBuffer(videoblob);
-                        // Generate a custom color palette to improve the gif quality.
-                        const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${webmFilename} -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
-                        return runProgram(makePallet , __dirname);
-                    }).then(function(result) {
-                        // Convert the webm to animated gif and create a thumbnail.
-                        const makeGif = (`${ffmpegPath} -hide_banner -loglevel error -y -i ${webmFilename} -i ${palette} \
-                        -filter_complex [0:v]split=2[in1][in2];[in1]scale=0:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2] \
-                        -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
-                        return runProgram(makeGif, __dirname);
-                    }).then(function(result) {
-                        resolve("Animated gif generated");
-                    }).catch(error => { 
-                        con.log(error);
-                        con.log(error.message);
-                    });
                 }
             });
         });
@@ -154,7 +172,7 @@ export default class Renderer {
             if (glTFAsset.sampleImageName) {
                 try {
                     await this.createSceneAsync(canvas, engine, glTFAsset.filepath, glTFAsset.camera.translation);
-                    await this.createSnapshotAsync(engine, glTFAsset.sampleImageName, outputDirectory);
+                    await this.createSnapshotAsync(glTFAsset.sampleImageName, outputDirectory);
                 }
                 catch (err) {
                     con.log("Failed to create snapshot: " + err);
@@ -186,7 +204,7 @@ export default class Renderer {
                 this._scene.render();
             });
 
-            window.addEventListener('resize', function () {
+            window.addEventListener('resize', () => {
                 engine.resize();
             });
         }
@@ -197,8 +215,6 @@ export default class Renderer {
     }
 
     createGLTFAsset(model: any, rootDirectory: string): IGLTFAsset {
-        BABYLON.Tools.Log("Models present");
-
         const camera: ICamera = {
             translation: BABYLON.Vector3.FromArray(model.camera.translation),
         }
@@ -253,11 +269,11 @@ export default class Renderer {
             const self = this;
 
 
-            const addMeshPromise = new Promise(function (resolve, reject) {
-                BABYLON.SceneLoader.ImportMesh("", rootDirectory, sceneFileName, self._scene, function (meshes) {
+            const addMeshPromise = new Promise((resolve, reject) => {
+                BABYLON.SceneLoader.ImportMesh("", rootDirectory, sceneFileName, self._scene, (meshes) => {
                     BABYLON.Tools.Log("Loaded Model");
                     resolve("loaded model: " + fileURL);
-                }, null, function (scene, message, exception) {
+                }, null, (scene, message, exception) => {
                     reject("Failed to load model: " + message);
                 });
             });
@@ -283,7 +299,7 @@ export default class Renderer {
         }
         if (event.key == 'l' || event.key == 'L') {
             BABYLON.Tools.Log('Loading file');
-            dialog.showOpenDialog({ properties: ['openFile'] }, function (filePaths) {
+            dialog.showOpenDialog({ properties: ['openFile'] }, (filePaths) => {
                 if (filePaths && filePaths.length) {
                     self._scene.dispose();
                     self.createSceneAsync(self._canvas, self._engine, filePaths[0], new BABYLON.Vector3(0, 0, 1.3));
@@ -297,7 +313,6 @@ export default class Renderer {
      * @param size - dimensions to use for the image.
      */
     createScreenshot(size: number | { width: number, height: number } | { precision: number }, callback?: (data: string) => void): void {
-        BABYLON.Tools.Log('Exporting texture...');
         BABYLON.Tools.CreateScreenshot(this._engine, this._camera, size, callback);
     }
 }
