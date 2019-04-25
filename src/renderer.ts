@@ -43,9 +43,6 @@ export default class Renderer {
             const arcRotateCamera = scene.activeCamera as BABYLON.ArcRotateCamera;
             arcRotateCamera.setPosition(camPos);
             self._camera = arcRotateCamera;
-            const hdrTexture = BABYLON.CubeTexture.CreateFromPrefilteredData("assets/environment.dds", scene);
-            hdrTexture.gammaSpace = false;
-            scene.createDefaultSkybox(hdrTexture, true, 100, 0.0);
             self._scene = scene;
 
             // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
@@ -68,6 +65,12 @@ export default class Renderer {
                     BABYLON.SceneLoader.ImportMeshAsync("", rootDirectory, sceneFileName, self._scene).then((result) => {
                         if (result.animationGroups[0]) {
                             result.animationGroups[0].start(false);
+                        } 
+                        else {
+                            // Only use the textured skybox if the model isn't animated.
+                            const hdrTexture = BABYLON.CubeTexture.CreateFromPrefilteredData("assets/environment.dds", self._scene);
+                            hdrTexture.gammaSpace = false;
+                            self._scene.createDefaultSkybox(hdrTexture, true, 100, 0.0);
                         }
                         resolve("createSceneAsync: Loaded model: " + fileURL);
                     })
@@ -89,6 +92,11 @@ export default class Renderer {
     createSnapshotAsync(sampleImageName: string, outputFolder: string,): Promise<any> {
         const self = this;
 
+        if ((self._scene.animationGroups[0] && (sampleImageName.endsWith('.gif') == false)) ||
+        (!self._scene.animationGroups[0] && (sampleImageName.endsWith('.png') == false))) {
+            throw Error(`File extension for "${sampleImageName}" does not match state of animation group "${self._scene.animationGroups[0]}". All animations must use .gif while unanimated models use .png`);
+        }
+
         return new Promise((resolve, reject) => {
             const name = BABYLON.Tools.GetFilename(sampleImageName).replace('Figures/SampleImages/', '');
             con.log("making snapshot for: " + name);
@@ -108,7 +116,7 @@ export default class Renderer {
                         
                         const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
 
-                        const gifFromFrames = (`${ffmpegPath} -hide_banner -loglevel error -y -r 60 -i ${sampleImageFolderName}/%d.png -i ${palette} \
+                        const gifFromFrames = (`${ffmpegPath} -hide_banner -loglevel error -y -r 30 -i ${sampleImageFolderName}/%d.png -i ${palette} \
                         -filter_complex [0:v]split=2[in1][in2];[in1]scale=400:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2] \
                         -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
 
@@ -142,6 +150,7 @@ export default class Renderer {
                 }
                 else {
                     // No animation on the model, so take an image.
+
                     self._scene.render();
 
                     self.createScreenshot({ width: self._canvas.width, height: self._canvas.height }, (base64Image: string) => {
