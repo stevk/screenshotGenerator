@@ -147,7 +147,10 @@ function createWindow() {
       height: height,
       width: width,
       useContentSize: true,
-      show: !headless
+      show: !headless,
+      webPreferences: {
+        nodeIntegration: true
+      }
     });
 
     mainWindow.setContentSize(width, height);
