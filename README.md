@@ -1,20 +1,12 @@
-This tools is used with the [glTF-Asset-Generator](https://github.com/bghgary/glTF-Asset-Generator) to generate screenshots.
+This tools is used with the [glTF-Asset-Generator](https://github.com/KhronosGroup/glTF-Asset-Generator) to generate sample images and gifs of 3D models.
 
-How to build:
+**How to build**
 Run these commands:
 
 ```
 npm install
-```
-
-To build the generator:
-
-```
 npm run build
 ```
-
-To execute the generator in interactive mode:
-
 
 **Interactive Mode**
 ```
@@ -28,6 +20,6 @@ S - takes a screenshot and saves to disk
 
 **Headless Mode**
 ```
-npm start -- headless=true manifest=../path/to/manifest/file outputDirectory=../path/to/save/screenshots
+npm start -- -- headless=true manifest=../path/to/manifest/file outputDirectory=../path/to/save/screenshots
 ```
 
