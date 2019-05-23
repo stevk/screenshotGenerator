@@ -117,7 +117,7 @@ export default class Renderer {
                         const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
 
                         const gifFromFrames = (`${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -i ${palette} \
-                        -filter_complex [0:v]setpts=N/(60*TB),split=2[in1][in2];[in1]scale=0:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2] \
+                        -filter_complex "[0:v]setpts=N/(60*TB),split=2[in1][in2];[in1]scale=0:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2]" \
                         -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
 
                         runProgram(makePallet, __dirname)
