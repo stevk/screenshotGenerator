@@ -224,8 +224,9 @@ export default class Renderer {
     }
 
     createGLTFAsset(model: any, rootDirectory: string): IGLTFAsset {
+        // Multiplication is to convert from a right (gltf) to left (babylon) handed coordinate system.
         const camera: ICamera = {
-            translation: BABYLON.Vector3.FromArray(model.camera.translation),
+            translation: BABYLON.Vector3.FromArray(model.camera.translation).multiply(new BABYLON.Vector3(-1, 1, 1)),
         }
 
         const asset: IGLTFAsset = {
