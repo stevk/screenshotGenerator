@@ -3,7 +3,7 @@ import 'babylonjs-loaders';
 import * as child_process from 'child_process';
 
 const fs = require('fs');
-const ffmpegPath = require('ffmpeg-binaries');
+const ffmpeg = require('ffmpeg-static');
 const { ipcRenderer } = require('electron');
 const { remote } = require('electron');
 const con = remote.getGlobal('console');
@@ -114,9 +114,9 @@ export default class Renderer {
                         const gifFullName = outputFolder + '/' + name;
                         const palette = `palette.png`;
                         
-                        const makePallet = `${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
+                        const makePallet = `${ffmpeg.path} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -vf scale=0:-1:flags=lanczos,palettegen=stats_mode=diff ${palette}`;
 
-                        const gifFromFrames = (`${ffmpegPath} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -i ${palette} \
+                        const gifFromFrames = (`${ffmpeg.path} -hide_banner -loglevel error -y -i ${sampleImageFolderName}/%d.png -i ${palette} \
                         -filter_complex "[0:v]setpts=N/(60*TB),split=2[in1][in2];[in1]scale=0:-1:flags=lanczos[x];[x][1:v]paletteuse[out1];[in2]scale=72:72:flags=lanczos[x];[x][1:v]paletteuse[out2]" \
                         -map [out1] ${gifFullName} -map [out2] ${gifFullName.replace('SampleImages', 'Thumbnails')}`);
 
